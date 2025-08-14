@@ -3,9 +3,7 @@
  * Template Name: Form Submission
  */
 
-
-
-// Subbmission code 
+// Submission code 
 require_once 'config.php';
 
 function createTableIfNotExists($conn) {
@@ -33,14 +31,28 @@ function createTableIfNotExists($conn) {
         waist VARCHAR(20),
         youtube_url TEXT,
         instagram_url TEXT,
-        head_shot VARCHAR(255),
-        full_body_shot VARCHAR(255),
-        profile_shot VARCHAR(255),
-        editorial_shot VARCHAR(255),
-        intro_video VARCHAR(255),
-        runway_video VARCHAR(255),
+        head_shot LONGBLOB,
+        head_shot_name VARCHAR(255),
+        head_shot_type VARCHAR(100),
+        full_body_shot LONGBLOB,
+        full_body_shot_name VARCHAR(255),
+        full_body_shot_type VARCHAR(100),
+        profile_shot LONGBLOB,
+        profile_shot_name VARCHAR(255),
+        profile_shot_type VARCHAR(100),
+        editorial_shot LONGBLOB,
+        editorial_shot_name VARCHAR(255),
+        editorial_shot_type VARCHAR(100),
+        intro_video LONGBLOB,
+        intro_video_name VARCHAR(255),
+        intro_video_type VARCHAR(100),
+        runway_video LONGBLOB,
+        runway_video_name VARCHAR(255),
+        runway_video_type VARCHAR(100),
         bio TEXT NOT NULL,
-        cv VARCHAR(255) NOT NULL,
+        cv LONGBLOB NOT NULL,
+        cv_name VARCHAR(255) NOT NULL,
+        cv_type VARCHAR(100) NOT NULL,
         portfolio_link TEXT,
         terms_accepted BOOLEAN NOT NULL DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -52,8 +64,8 @@ function createTableIfNotExists($conn) {
     }
 }
 
-// Function to handle file upload
-function handleFileUpload($file, $uploadDir, $allowedTypes, $maxSize = 10485760) { // 10MB default
+// Function to handle file validation and read content
+function validateAndReadFile($file, $allowedTypes, $maxSize = 10485760) { // 10MB default
     if (!isset($file) || $file['error'] !== UPLOAD_ERR_OK) {
         return null;
     }
@@ -69,21 +81,18 @@ function handleFileUpload($file, $uploadDir, $allowedTypes, $maxSize = 10485760)
         throw new Exception("Invalid file type. Allowed types: " . implode(', ', $allowedTypes));
     }
     
-    // Create upload directory if it doesn't exist
-    if (!file_exists($uploadDir)) {
-        mkdir($uploadDir, 0755, true);
+    // Read file content
+    $fileContent = file_get_contents($file['tmp_name']);
+    if ($fileContent === false) {
+        throw new Exception("Failed to read file content");
     }
     
-    // Generate unique filename
-    $fileName = uniqid() . '_' . time() . '.' . $fileType;
-    $targetFile = $uploadDir . $fileName;
-    
-    // Move uploaded file
-    if (move_uploaded_file($file['tmp_name'], $targetFile)) {
-        return $fileName;
-    } else {
-        throw new Exception("Failed to upload file");
-    }
+    return [
+        'content' => $fileContent,
+        'name' => $file['name'],
+        'type' => $file['type'],
+        'size' => $file['size']
+    ];
 }
 
 // Function to validate and sanitize input
@@ -104,11 +113,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     try {
         // Create table if it doesn't exist
         createTableIfNotExists($conn);
-        
-        // Define upload directories
-        $imageUploadDir = 'uploads/images/';
-        $videoUploadDir = 'uploads/videos/';
-        $cvUploadDir = 'uploads/cv/';
         
         // Sanitize and validate input data
         $firstName = sanitizeInput($_POST['firstName']);
@@ -131,24 +135,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $termsAccepted = isset($_POST['termsAccepted']) ? 1 : 0;
         
         // Handle silhouette profile data (conditional)
-        $hips = sanitizeInput($_POST['hips'] ?? '');
-        $hairColor = sanitizeInput($_POST['hairColor'] ?? '');
-        $eyeColor = sanitizeInput($_POST['eyeColor'] ?? '');
-        $height = sanitizeInput($_POST['height'] ?? '');
-        $weight = sanitizeInput($_POST['weight'] ?? '');
-        $bust = sanitizeInput($_POST['bust'] ?? '');
-        $waist = sanitizeInput($_POST['waist'] ?? '');
+        $hips = '';
+        $hairColor = '';
+        $eyeColor = '';
+        $height = '';
+        $weight = '';
+        $bust = '';
+        $waist = '';
 
-
-        // if ($skillSet === 'models' || $skillSet === 'actors') {
-        //     $hips = sanitizeInput($_POST['hips'] ?? '');
-        //     $hairColor = sanitizeInput($_POST['hairColor'] ?? '');
-        //     $eyeColor = sanitizeInput($_POST['eyeColor'] ?? '');
-        //     $height = sanitizeInput($_POST['height'] ?? '');
-        //     $weight = sanitizeInput($_POST['weight'] ?? '');
-        //     $bust = sanitizeInput($_POST['bust'] ?? '');
-        //     $waist = sanitizeInput($_POST['waist'] ?? '');
-        // }
+        if ($skillSet === 'models' || $skillSet === 'actors') {
+            $hips = sanitizeInput($_POST['hips'] ?? '');
+            $hairColor = sanitizeInput($_POST['hairColor'] ?? '');
+            $eyeColor = sanitizeInput($_POST['eyeColor'] ?? '');
+            $height = sanitizeInput($_POST['height'] ?? '');
+            $weight = sanitizeInput($_POST['weight'] ?? '');
+            $bust = sanitizeInput($_POST['bust'] ?? '');
+            $waist = sanitizeInput($_POST['waist'] ?? '');
+        }
         
         // Validate required fields
         if (empty($firstName) || empty($lastName) || empty($email) || empty($bio)) {
@@ -170,50 +173,86 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             throw new Exception("You must accept the Terms & Conditions");
         }
         
-        // Handle file uploads
-        $headShot = $headShot ?? '';
-        $fullBodyShot = $fullBodyShot ?? '';
-        $profileShot = $profileShot ?? '';
-        $editorialShot = $editorialShot ?? '';
-        $introVideo = $introVideo ?? '';
-        $runwayVideo = $runwayVideo ?? '';
-        $cvFile = null;
+        // Initialize file variables
+        $headShotData = null; $headShotName = null; $headShotType = null;
+        $fullBodyShotData = null; $fullBodyShotName = null; $fullBodyShotType = null;
+        $profileShotData = null; $profileShotName = null; $profileShotType = null;
+        $editorialShotData = null; $editorialShotName = null; $editorialShotType = null;
+        $introVideoData = null; $introVideoName = null; $introVideoType = null;
+        $runwayVideoData = null; $runwayVideoName = null; $runwayVideoType = null;
+        $cvData = null; $cvName = null; $cvType = null;
         
-        // Image uploads (JPG only)
+        // Handle file uploads and validation
         $imageTypes = ['jpg', 'jpeg'];
+        $videoTypes = ['mp4'];
+        $cvTypes = ['pdf', 'doc', 'docx'];
         
+        // Process image uploads
         if (isset($_FILES['headShot'])) {
-            $headShot = handleFileUpload($_FILES['headShot'], $imageUploadDir, $imageTypes);
+            $fileData = validateAndReadFile($_FILES['headShot'], $imageTypes);
+            if ($fileData) {
+                $headShotData = $fileData['content'];
+                $headShotName = $fileData['name'];
+                $headShotType = $fileData['type'];
+            }
         }
         
         if (isset($_FILES['fullBodyShot'])) {
-            $fullBodyShot = handleFileUpload($_FILES['fullBodyShot'], $imageUploadDir, $imageTypes);
+            $fileData = validateAndReadFile($_FILES['fullBodyShot'], $imageTypes);
+            if ($fileData) {
+                $fullBodyShotData = $fileData['content'];
+                $fullBodyShotName = $fileData['name'];
+                $fullBodyShotType = $fileData['type'];
+            }
         }
         
         if (isset($_FILES['profileShot'])) {
-            $profileShot = handleFileUpload($_FILES['profileShot'], $imageUploadDir, $imageTypes);
+            $fileData = validateAndReadFile($_FILES['profileShot'], $imageTypes);
+            if ($fileData) {
+                $profileShotData = $fileData['content'];
+                $profileShotName = $fileData['name'];
+                $profileShotType = $fileData['type'];
+            }
         }
         
         if (isset($_FILES['editorialShot'])) {
-            $editorialShot = handleFileUpload($_FILES['editorialShot'], $imageUploadDir, $imageTypes);
+            $fileData = validateAndReadFile($_FILES['editorialShot'], $imageTypes);
+            if ($fileData) {
+                $editorialShotData = $fileData['content'];
+                $editorialShotName = $fileData['name'];
+                $editorialShotType = $fileData['type'];
+            }
         }
         
-        // Video uploads (MP4 only)
-        $videoTypes = ['mp4'];
-        
+        // Process video uploads
         if (isset($_FILES['introVideo'])) {
-            $introVideo = handleFileUpload($_FILES['introVideo'], $videoUploadDir, $videoTypes);
+            $fileData = validateAndReadFile($_FILES['introVideo'], $videoTypes);
+            if ($fileData) {
+                $introVideoData = $fileData['content'];
+                $introVideoName = $fileData['name'];
+                $introVideoType = $fileData['type'];
+            }
         }
         
         if (isset($_FILES['runwayVideo'])) {
-            $runwayVideo = handleFileUpload($_FILES['runwayVideo'], $videoUploadDir, $videoTypes);
+            $fileData = validateAndReadFile($_FILES['runwayVideo'], $videoTypes);
+            if ($fileData) {
+                $runwayVideoData = $fileData['content'];
+                $runwayVideoName = $fileData['name'];
+                $runwayVideoType = $fileData['type'];
+            }
         }
         
-        // CV upload (PDF, DOC, DOCX)
-        $cvTypes = ['pdf', 'doc', 'docx'];
-        
+        // Process CV upload (required)
         if (isset($_FILES['cv']) && $_FILES['cv']['error'] === UPLOAD_ERR_OK) {
-            $cvFile = handleFileUpload($_FILES['cv'], $cvUploadDir, $cvTypes);
+            $fileData = validateAndReadFile($_FILES['cv'], $cvTypes);
+            if ($fileData) {
+                $cvData = $fileData['content'];
+                $cvName = $fileData['name'];
+                $cvType = $fileData['type'];
+            } else {
+                throw new Exception("CV upload is required");
+            }
         } else {
             throw new Exception("CV upload is required");
         }
@@ -223,10 +262,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             first_name, last_name, gender, age, street_address, city, zip_code, 
             state_province, country, email, phone, skill_set, specify_other,
             hips, hair_color, eye_color, height, weight, bust, waist,
-            youtube_url, instagram_url, head_shot, full_body_shot, profile_shot, 
-            editorial_shot, intro_video, runway_video, bio, cv, portfolio_link, 
-            terms_accepted
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            youtube_url, instagram_url, 
+            head_shot, head_shot_name, head_shot_type,
+            full_body_shot, full_body_shot_name, full_body_shot_type,
+            profile_shot, profile_shot_name, profile_shot_type,
+            editorial_shot, editorial_shot_name, editorial_shot_type,
+            intro_video, intro_video_name, intro_video_type,
+            runway_video, runway_video_name, runway_video_type,
+            bio, cv, cv_name, cv_type, portfolio_link, terms_accepted
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         
         // Prepare statement
         $stmt = mysqli_prepare($conn, $sql);
@@ -236,13 +280,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
         
         // Bind parameters
-        mysqli_stmt_bind_param($stmt, "sssisssssssssssssssssssssssssssi", 
+        mysqli_stmt_bind_param($stmt, "sssisssssssssssssssssssssssssssssssssssssssssi", 
             $firstName, $lastName, $gender, $age, $streetAddress, $city, $zipCode,
             $stateProvince, $country, $email, $phone, $skillSet, $specifyOther,
             $hips, $hairColor, $eyeColor, $height, $weight, $bust, $waist,
-            $youtubeUrl, $instagramUrl, $headShot, $fullBodyShot, $profileShot,
-            $editorialShot, $introVideo, $runwayVideo, $bio, $cvFile, $portfolioLink,
-            $termsAccepted
+            $youtubeUrl, $instagramUrl,
+            $headShotData, $headShotName, $headShotType,
+            $fullBodyShotData, $fullBodyShotName, $fullBodyShotType,
+            $profileShotData, $profileShotName, $profileShotType,
+            $editorialShotData, $editorialShotName, $editorialShotType,
+            $introVideoData, $introVideoName, $introVideoType,
+            $runwayVideoData, $runwayVideoName, $runwayVideoType,
+            $bio, $cvData, $cvName, $cvType, $portfolioLink, $termsAccepted
         );
         
         // Execute the statement
@@ -276,14 +325,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         
         // Log error (optional)
         error_log("Form submission error: " . $e->getMessage());
-        
-        // Clean up uploaded files on error (optional)
-        $filesToCleanup = [$headShot, $fullBodyShot, $profileShot, $editorialShot, $introVideo, $runwayVideo, $cvFile];
-        foreach ($filesToCleanup as $file) {
-            if ($file && file_exists('uploads/' . $file)) {
-                unlink('uploads/' . $file);
-            }
-        }
     }
     
     // Close connection
@@ -309,18 +350,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         function toggleSilhouetteSection() {
             const selectedValue = skillSetSelect.value.toLowerCase();
             if (selectedValue === "models" || selectedValue === "actors") {
-                silhouetteSection.classList.remove('hidden');
+                silhouetteSection.style.display = "block";
             } else {
-                silhouetteSection.classList.add('hidden');
+                silhouetteSection.style.display = "none";
             }
         }
-
 
         // Initial check on page load
         toggleSilhouetteSection();
 
         // Listen for changes
         skillSetSelect.addEventListener("change", toggleSilhouetteSection);
+
+        // Add file size validation
+        const fileInputs = document.querySelectorAll('input[type="file"]');
+        fileInputs.forEach(input => {
+            input.addEventListener('change', function() {
+                const maxSize = 10 * 1024 * 1024; // 10MB in bytes
+                if (this.files[0] && this.files[0].size > maxSize) {
+                    alert('File size exceeds 10MB limit. Please choose a smaller file.');
+                    this.value = '';
+                }
+            });
+        });
     });
     </script>
 
@@ -436,13 +488,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         background-color: #444;
         margin: 40px 0;
     }
-
-
-    .hidden {
-        position: absolute;
-        left: -9999px;
-    }
-
 
     @media (max-width: 768px) {
         body {
@@ -585,8 +630,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             <div class="divider"></div>
 
             <!-- Silhouette Profile Section (Conditional) -->
-            <div id="silhouette-profile" class="hidden">
-
+            <div id="silhouette-profile" style="display: none;">
                 <h2>Silhouette Profile</h2>
                 <div class="row">
                     <div class="field">
