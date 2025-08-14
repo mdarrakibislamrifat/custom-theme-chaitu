@@ -249,12 +249,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         if (mysqli_stmt_execute($stmt)) {
             $insertId = mysqli_insert_id($conn);
             
-            // Success response
-            echo json_encode([
-                'success' => true,
-                'message' => 'Form submitted successfully!',
-                'id' => $insertId
-            ]);
+                    // Success alert + redirect
+            echo '<script>
+                alert("Record has been successfully submitted!");
+                window.location.href = "'. esc_url(home_url('/')) .'";
+            </script>';
+            exit;
             
             // Redirect to success page (optional)
             // header('Location: success.php?id=' . $insertId);
@@ -291,6 +291,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     
 }
 
+?>
+
+
+
+<?php
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Cache-Control: post-check=0, pre-check=0", false);
+header("Pragma: no-cache");
+header("Expires: Sat, 26 Jul 1997 05:00:00 GMT"); // Past date
 ?>
 
 <!DOCTYPE html>
@@ -467,7 +476,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 <body>
     <div class="form-container">
-        <form method="POST" action="<?php echo esc_url(get_permalink()); ?>" enctype="multipart/form-data">
+        <form method="POST" action="<?php echo esc_url(get_permalink()); ?>" enctype="multipart/form-data"
+            autocomplete="off">
 
             <?php wp_nonce_field('personal_info_form', 'personal_info_nonce'); ?>
             <input type="hidden" name="action" value="submit_personal_info">
