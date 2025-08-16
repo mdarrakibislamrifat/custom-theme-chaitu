@@ -123,3 +123,12 @@ function handle_profile_image_ajax() {
     echo json_encode(['success' => true, 'url' => esc_url($url)]);
     wp_die();
 }
+
+
+// Register Shortcode
+function personal_info_form_shortcode() {
+    ob_start();
+    include get_stylesheet_directory() . '/form-submission.php'; // your full file
+    return ob_get_clean();
+}
+add_shortcode('personal_info_form', 'personal_info_form_shortcode');
